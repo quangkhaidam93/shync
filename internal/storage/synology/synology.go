@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/quangkhaidam93/shync/internal/config"
@@ -33,15 +34,22 @@ func New(cfg *config.Config) (*Synology, error) {
 		return nil, err
 	}
 
-	return &Synology{
+	s := &Synology{
 		client: client,
 		base:   base,
 		sid:    sid,
 		cfg:    cfg,
-	}, nil
+	}
+
+	return s, nil
 }
 
 func (s *Synology) Name() string { return "synology" }
+
+// Close closes idle TCP connections to the Synology server.
+func (s *Synology) Close() {
+	s.client.CloseIdleConnections()
+}
 
 func (s *Synology) Upload(ctx context.Context, remotePath string, src io.Reader, filename string) error {
 	dir := path.Dir(s.fullPath(remotePath))
@@ -94,21 +102,27 @@ func (s *Synology) Download(ctx context.Context, remotePath string, dst io.Write
 		"_sid":    {s.sid},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		s.base+"/webapi/entry.cgi?"+params.Encode(), nil)
+	body := strings.NewReader(params.Encode())
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		s.base+"/webapi/entry.cgi", body)
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := s.do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Download returns raw file body on success
-	if resp.Header.Get("Content-Type") == "application/json" {
+	ct := resp.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "application/json") {
 		return s.checkResponse(resp)
+	}
+	if strings.HasPrefix(ct, "text/html") {
+		return fmt.Errorf("download failed (status %d): endpoint returned HTML — is FileStation installed and running?",
+			resp.StatusCode)
 	}
 
 	_, err = io.Copy(dst, resp.Body)
@@ -125,13 +139,7 @@ func (s *Synology) List(ctx context.Context, remoteDir string) ([]storage.FileMe
 		"_sid":       {s.sid},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		s.base+"/webapi/entry.cgi?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.do(req)
+	resp, err := s.postForm(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +190,7 @@ func (s *Synology) Exists(ctx context.Context, remotePath string) (bool, error) 
 		"_sid":    {s.sid},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		s.base+"/webapi/entry.cgi?"+params.Encode(), nil)
-	if err != nil {
-		return false, err
-	}
-
-	resp, err := s.do(req)
+	resp, err := s.postForm(ctx, params)
 	if err != nil {
 		return false, err
 	}
@@ -216,13 +218,7 @@ func (s *Synology) Delete(ctx context.Context, remotePath string) error {
 		"_sid":    {s.sid},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET",
-		s.base+"/webapi/entry.cgi?"+params.Encode(), nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := s.do(req)
+	resp, err := s.postForm(ctx, params)
 	if err != nil {
 		return err
 	}
@@ -239,48 +235,61 @@ func (s *Synology) fullPath(remotePath string) string {
 	return sharePath + remotePath
 }
 
-// do executes the request with automatic session re-login on timeout (error 106).
-func (s *Synology) do(req *http.Request) (*http.Response, error) {
-	resp, err := s.client.Do(req)
+// postForm sends a POST request with form-encoded params to /webapi/entry.cgi.
+// On session timeout (error 106), it re-logins and retries once.
+func (s *Synology) postForm(ctx context.Context, params url.Values) (*http.Response, error) {
+	resp, err := s.doPost(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	// Peek at the response to check for session timeout
-	// Only retry for non-upload requests (GET requests)
-	if req.Method == "GET" && resp.Header.Get("Content-Type") == "application/json" {
-		var buf bytes.Buffer
-		tee := io.TeeReader(resp.Body, &buf)
-		var result struct {
-			Success bool `json:"success"`
-			Error   struct {
-				Code int `json:"code"`
-			} `json:"error"`
-		}
-		if err := json.NewDecoder(tee).Decode(&result); err == nil {
-			if !result.Success && result.Error.Code == 106 {
-				resp.Body.Close()
-				// Re-login
-				sid, err := login(s.client, s.base, s.cfg)
-				if err != nil {
-					return nil, fmt.Errorf("re-login failed: %w", err)
-				}
-				s.sid = sid
-				// Update _sid in the request URL
-				u, _ := url.Parse(req.URL.String())
-				q := u.Query()
-				q.Set("_sid", s.sid)
-				u.RawQuery = q.Encode()
-				req.URL = u
-				return s.client.Do(req)
-			}
-		}
-		// Reconstruct the response body from the buffer (original is drained)
-		resp.Body.Close()
-		resp.Body = io.NopCloser(&buf)
+	// Peek at JSON responses to check for session timeout (error 106)
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		return resp, nil
 	}
 
+	var buf bytes.Buffer
+	tee := io.TeeReader(resp.Body, &buf)
+	var result struct {
+		Success bool `json:"success"`
+		Error   struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(tee).Decode(&result); err == nil {
+		if !result.Success && result.Error.Code == 106 {
+			resp.Body.Close()
+			// Re-login and retry
+			sid, loginErr := login(s.client, s.base, s.cfg)
+			if loginErr != nil {
+				return nil, fmt.Errorf("re-login failed: %w", loginErr)
+			}
+			s.sid = sid
+			params.Set("_sid", s.sid)
+			return s.doPost(ctx, params)
+		}
+	}
+
+	// Reconstruct the body from the buffer
+	resp.Body.Close()
+	resp.Body = io.NopCloser(&buf)
 	return resp, nil
+}
+
+func (s *Synology) doPost(ctx context.Context, params url.Values) (*http.Response, error) {
+	body := strings.NewReader(params.Encode())
+	req, err := http.NewRequestWithContext(ctx, "POST", s.base+"/webapi/entry.cgi", body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return s.client.Do(req)
+}
+
+// do executes a request (used only for multipart uploads).
+func (s *Synology) do(req *http.Request) (*http.Response, error) {
+	return s.client.Do(req)
 }
 
 func (s *Synology) checkResponse(resp *http.Response) error {

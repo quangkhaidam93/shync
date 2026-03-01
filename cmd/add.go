@@ -34,6 +34,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing backend: %w", err)
 	}
+	defer backend.Close()
 
 	var added []string
 	for _, p := range selected {

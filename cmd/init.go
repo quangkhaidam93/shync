@@ -8,7 +8,6 @@ import (
 
 	"github.com/manifoldco/promptui"
 	"github.com/quangkhaidam93/shync/internal/config"
-	"github.com/quangkhaidam93/shync/internal/storage/googledrive"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -96,17 +95,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nConfig written to %s\n", path)
 
-	// Trigger auth flow for Google Drive so user completes setup in one step
-	if chosen == "google_drive" {
-		fmt.Println("\nAuthenticating with Google Drive...")
-		if _, err := googledrive.New(cfg); err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
-		}
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("saving config: %w", err)
-		}
-		fmt.Println("Authentication successful.")
+	// Trigger auth flow so user completes setup in one step
+	fmt.Printf("\nAuthenticating with %s...\n", chosen)
+	if _, err := newBackendWith(cfg); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
 	}
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	fmt.Println("Authentication successful.")
 
 	fmt.Println("Run 'shync up <file>' to start syncing files.")
 	return nil

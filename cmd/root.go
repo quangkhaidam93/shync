@@ -50,12 +50,16 @@ func init() {
 }
 
 func newBackend() (storage.Backend, error) {
-	switch cfg.ActiveBackend {
+	return newBackendWith(cfg)
+}
+
+func newBackendWith(c *config.Config) (storage.Backend, error) {
+	switch c.ActiveBackend {
 	case "google_drive":
-		return googledrive.New(cfg)
+		return googledrive.New(c)
 	case "synology":
-		return synology.New(cfg)
+		return synology.New(c)
 	default:
-		return nil, fmt.Errorf("unknown backend: %s", cfg.ActiveBackend)
+		return nil, fmt.Errorf("unknown backend: %s", c.ActiveBackend)
 	}
 }

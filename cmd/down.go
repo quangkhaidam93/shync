@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/manifoldco/promptui"
 	"github.com/quangkhaidam93/shync/internal/backup"
 	"github.com/quangkhaidam93/shync/internal/fileutil"
 	"github.com/quangkhaidam93/shync/internal/storage"
@@ -37,6 +37,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return nil, err
 			}
+			defer b.Close()
 			return b.List(context.Background(), cfg.RemoteDir)
 		})
 		if err != nil {
@@ -49,6 +50,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing backend: %w", err)
 	}
+	defer backend.Close()
 
 	entry := cfg.FindFileByRemoteName(remoteName)
 	if entry == nil {
@@ -57,6 +59,14 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 	localPath := fileutil.ExpandPath(entry.LocalPath)
 	remotePath := cfg.RemoteDir + "/" + remoteName
+
+	exists, err := backend.Exists(context.Background(), remotePath)
+	if err != nil {
+		return fmt.Errorf("checking remote file: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("file not found on remote: %s", remoteName)
+	}
 
 	// Download to temp file first
 	tmpFile, err := os.CreateTemp("", "shync-down-*")
@@ -92,11 +102,12 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 		renderSideBySide(remoteName, "local", diffs)
 
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("\nApply changes? [y/N]: ")
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
+		sel := promptui.Select{
+			Label: "Apply changes?",
+			Items: []string{"Yes", "No"},
+		}
+		_, choice, err := sel.Run()
+		if err != nil || choice == "No" {
 			fmt.Println("Aborted.")
 			return nil
 		}

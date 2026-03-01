@@ -1,15 +1,14 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/manifoldco/promptui"
 	"github.com/quangkhaidam93/shync/internal/fileutil"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +50,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing backend: %w", err)
 	}
+	defer backend.Close()
 
 	filename := filepath.Base(absPath)
 	remotePath := cfg.RemoteDir + "/" + filename
@@ -61,41 +61,41 @@ func runUp(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("checking remote file: %w", err)
 	}
 	if exists {
+		showedDiff := false
+
 		tmpFile, err := os.CreateTemp("", "shync-up-*")
-		if err != nil {
-			return fmt.Errorf("creating temp file: %w", err)
-		}
-		tmpPath := tmpFile.Name()
-		defer os.Remove(tmpPath)
+		if err == nil {
+			tmpPath := tmpFile.Name()
+			defer os.Remove(tmpPath)
 
-		if err := backend.Download(context.Background(), remotePath, tmpFile); err != nil {
-			tmpFile.Close()
-			return fmt.Errorf("downloading remote for diff: %w", err)
-		}
-		tmpFile.Close()
+			if dlErr := backend.Download(context.Background(), remotePath, tmpFile); dlErr == nil {
+				tmpFile.Close()
+				remoteLines, _ := readLines(tmpPath)
+				localLines, _ := readLines(absPath)
 
-		remoteLines, err := readLines(tmpPath)
-		if err != nil {
-			return fmt.Errorf("reading remote file: %w", err)
-		}
-		localLines, err := readLines(absPath)
-		if err != nil {
-			return fmt.Errorf("reading local file: %w", err)
-		}
+				diffs := computeDiff(remoteLines, localLines)
+				if isIdentical(diffs) {
+					fmt.Println("Files are identical. Nothing to upload.")
+					return nil
+				}
 
-		diffs := computeDiff(remoteLines, localLines)
-		if isIdentical(diffs) {
-			fmt.Println("Files are identical. Nothing to upload.")
-			return nil
+				renderSideBySide(filename, "remote", diffs)
+				showedDiff = true
+			} else {
+				tmpFile.Close()
+			}
 		}
 
-		renderSideBySide(filename, "remote", diffs)
+		if !showedDiff {
+			fmt.Printf("Remote file %s already exists (diff unavailable).\n", filename)
+		}
 
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("\nUpload changes? [y/N]: ")
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
+		sel := promptui.Select{
+			Label: "Upload changes?",
+			Items: []string{"Yes", "No"},
+		}
+		_, choice, err := sel.Run()
+		if err != nil || choice == "No" {
 			fmt.Println("Aborted.")
 			return nil
 		}
@@ -161,6 +161,7 @@ func uploadFile(absPath string) error {
 	if err != nil {
 		return fmt.Errorf("initializing backend: %w", err)
 	}
+	defer backend.Close()
 
 	filename := filepath.Base(absPath)
 	remotePath := cfg.RemoteDir + "/" + filename

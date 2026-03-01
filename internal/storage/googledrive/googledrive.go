@@ -58,6 +58,8 @@ func New(cfg *config.Config) (*Drive, error) {
 
 func (d *Drive) Name() string { return "google_drive" }
 
+func (d *Drive) Close() {}
+
 func (d *Drive) Upload(ctx context.Context, remotePath string, src io.Reader, filename string) error {
 	name := path.Base(remotePath)
 

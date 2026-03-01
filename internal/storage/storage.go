@@ -19,4 +19,5 @@ type Backend interface {
 	Exists(ctx context.Context, remotePath string) (bool, error)
 	Delete(ctx context.Context, remotePath string) error
 	Name() string
+	Close()
 }

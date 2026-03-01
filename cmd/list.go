@@ -45,6 +45,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			ch <- result{err: err}
 			return
 		}
+		defer backend.Close()
 		var statuses []fileStatus
 		for _, f := range cfg.Files {
 			localExists := fileutil.FileExists(fileutil.ExpandPath(f.LocalPath))
