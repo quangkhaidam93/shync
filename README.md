@@ -115,10 +115,17 @@ shync list
 |---------|-------------|
 | `shync init` | Interactive setup — pick a backend, configure credentials, and authenticate |
 | `shync auth` | Re-authenticate or switch accounts |
-| `shync up <file>` | Upload a file to remote storage |
-| `shync down <file>` | Download a file from remote storage |
-| `shync list` | List all tracked files |
+| `shync add` | Pick files to track from supported file patterns |
+| `shync up [file]` | Upload a file to remote storage |
+| `shync down [file]` | Download a file from remote storage |
+| `shync list` | List all tracked files with remote status |
+| `shync check` | Check sync status of all tracked files by comparing content |
+| `shync diff [file]` | Show side-by-side differences between local and remote versions |
+| `shync view [file]` | View a tracked file in read-only vim (local or remote) |
+| `shync remove` | Remove tracked files from config |
+| `shync backend` | Change the active storage backend |
 | `shync config get\|set\|list\|remove` | View or modify configuration |
+| `shync clean` | Remove stale backups |
 | `shync update` | Self-update to the latest release |
 | `shync uninstall` | Remove shync and all config data |
 | `shync version` | Print version, commit, and build info |
