@@ -1,0 +1,43 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/quangkhaidam93/shync/cmd.Version={{.Version}}
+      - -X github.com/quangkhaidam93/shync/cmd.Commit={{.Commit}}
+      - -X github.com/quangkhaidam93/shync/cmd.Date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: "shync_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - repository:
+      owner: quangkhaidam93
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/quangkhaidam93/shync"
+    description: "Sync config files across devices"
+    license: "MIT"
+    test: |
+      system "#{bin}/shync", "version"
