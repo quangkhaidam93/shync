@@ -87,11 +87,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 		}
 
 		if !showedDiff {
-			fmt.Printf("Remote file %s already exists (diff unavailable).\n", filename)
+			fmt.Printf("Remote file %s does not exist. This will be a new upload.\n", filename)
 		}
 
 		sel := promptui.Select{
-			Label: "Upload changes?",
+			Label: "Overwrite remote file?",
 			Items: []string{"Yes", "No"},
 		}
 		_, choice, err := sel.Run()

@@ -36,7 +36,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(path); err == nil {
 		fmt.Printf("Config already exists at %s\n", path)
 		overwrite := promptui.Select{
-			Label: "Overwrite",
+			Label: "This will reset all settings and tracked files. Overwrite?",
 			Items: []string{"No", "Yes"},
 		}
 		_, overwriteChoice, err := overwrite.Run()
@@ -203,11 +203,10 @@ func setupSynology(reader *bufio.Reader, cfg *config.Config) error {
 	}
 	cfg.Synology.Password = string(passBytes)
 
-	defaultShare := cfg.Synology.SharePath
-	if defaultShare == "" {
-		defaultShare = "/homes/" + cfg.Synology.Username + "/Drive"
+	if cfg.Synology.SharePath == "" {
+		cfg.Synology.SharePath = "/homes/" + cfg.Synology.Username + "/Drive"
 	}
-	fmt.Printf("Share path [%s]: ", defaultShare)
+	fmt.Printf("Share path [%s]: ", cfg.Synology.SharePath)
 	share, _ := reader.ReadString('\n')
 	share = strings.TrimSpace(share)
 	if share != "" {

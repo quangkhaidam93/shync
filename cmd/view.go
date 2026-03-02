@@ -122,17 +122,7 @@ func viewRemoteFile(remoteName string) error {
 
 	defer os.Remove(tmpPath)
 
-	if err := openReadOnly(tmpPath); err != nil {
-		return err
-	}
-
-	// Delete from remote after viewing
-	return spin(fmt.Sprintf("Deleting %s from remote...", remoteName), func() error {
-		if err := backend.Delete(context.Background(), remotePath); err != nil {
-			return fmt.Errorf("deleting remote file: %w", err)
-		}
-		return nil
-	})
+	return openReadOnly(tmpPath)
 }
 
 // openReadOnly opens a file in vim read-only mode.
