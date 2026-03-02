@@ -15,19 +15,19 @@ import (
 	"golang.org/x/term"
 )
 
-var downCmd = &cobra.Command{
-	Use:   "down [file]",
+var pullCmd = &cobra.Command{
+	Use:   "pull [file]",
 	Short: "Download a file from remote storage",
 	Long:  "Download a tracked file from remote storage. Shows a side-by-side diff preview and creates a backup of the existing local file first.\nWith no arguments, pick from tracked files.",
 	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDown,
+	RunE:  runPull,
 }
 
 func init() {
-	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(pullCmd)
 }
 
-func runDown(cmd *cobra.Command, args []string) error {
+func runPull(cmd *cobra.Command, args []string) error {
 	var remoteName string
 	if len(args) == 1 {
 		remoteName = args[0]

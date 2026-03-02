@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var backends = []string{"google_drive", "synology"}
+var backends = []string{"google_drive", "synology", "gist"}
 
 var backendCmd = &cobra.Command{
 	Use:   "backend",
@@ -65,6 +65,10 @@ func runBackend(cmd *cobra.Command, args []string) error {
 		}
 	case "synology":
 		if err := setupSynology(reader, cfg); err != nil {
+			return err
+		}
+	case "gist":
+		if err := setupGist(reader, cfg); err != nil {
 			return err
 		}
 	}

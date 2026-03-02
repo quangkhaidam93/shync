@@ -12,7 +12,7 @@ import (
 var addCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Pick files to track from supported file patterns",
-	Long:  "Browse your filesystem for files matching supported_files patterns\nand add them to tracking. Use 'shync up' to upload tracked files.",
+	Long:  "Browse your filesystem for files matching supported_files patterns\nand add them to tracking. Use 'shync push' to upload tracked files.",
 	Args:  cobra.NoArgs,
 	RunE:  runAdd,
 }
@@ -45,7 +45,18 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		filename := filepath.Base(absPath)
+		filename, renames, err := resolveRemoteName(absPath, backend)
+		if err != nil {
+			fmt.Printf("Skipping %s: %v\n", p, err)
+			continue
+		}
+		if len(renames) > 0 {
+			if err := applyRenames(backend, renames); err != nil {
+				fmt.Printf("Skipping %s: rename failed: %v\n", p, err)
+				continue
+			}
+		}
+
 		displayPath := fileutil.ContractPath(absPath)
 
 		// Check remote status.
@@ -66,7 +77,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("saving config: %w", err)
 		}
-		fmt.Printf("\nTracked %d file(s). Use 'shync up' to upload.\n", len(added))
+		fmt.Printf("\nTracked %d file(s). Use 'shync push' to upload.\n", len(added))
 	}
 
 	return nil

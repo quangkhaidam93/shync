@@ -35,8 +35,8 @@ across every machine you work on — backed by storage you already own.
 |---|---------|-------------|
 | 🔄 | **Two-way sync** | Upload and download configs with a single command |
 | 📊 | **Progress bar** | Real-time upload progress with speed and ETA |
-| 🔐 | **Secure auth** | OAuth 2.0 + PKCE for Google Drive, 2FA support for Synology |
-| 🏠 | **Your storage** | Files live on your Google Drive or Synology NAS — not a third-party server |
+| 🔐 | **Secure auth** | OAuth 2.0 + PKCE for Google Drive, 2FA for Synology, PAT for GitHub Gist |
+| 🏠 | **Your storage** | Files live on your Google Drive, Synology NAS, or GitHub Gist — not a third-party server |
 | ⚡ | **Self-updating** | Built-in `shync update` pulls the latest release automatically |
 | 🛠️ | **Zero config** | Interactive `shync init` walks you through setup in seconds |
 
@@ -71,6 +71,20 @@ go install github.com/quangkhaidam93/shync@latest
 
 ## 🚀 Getting Started
 
+### GitHub Gist Setup
+
+The fastest way to get started — just needs a GitHub account:
+
+1. Go to [github.com/settings/tokens/new](https://github.com/settings/tokens/new)
+2. Give it a name (e.g. "shync"), check the **gist** scope
+3. Click **Generate token** and copy it
+
+```sh
+shync init    # select "gist", paste your token
+```
+
+shync creates a private gist to store your files. To sync another device, run `shync init` with the same token and enter the Gist ID from your config.
+
 ### Google Drive Setup
 
 Before running `shync init`, you need OAuth credentials from Google Cloud Console:
@@ -100,10 +114,10 @@ Before running `shync init`, you need OAuth credentials from Google Cloud Consol
 shync init
 
 # 2. Upload a config file
-shync up ~/.zshrc
+shync push ~/.zshrc
 
 # 3. On another machine, pull it down
-shync down .zshrc
+shync pull .zshrc
 
 # 4. See what's tracked
 shync list
@@ -116,14 +130,17 @@ shync list
 | `shync init` | Interactive setup — pick a backend, configure credentials, and authenticate |
 | `shync auth` | Re-authenticate or switch accounts |
 | `shync add` | Pick files to track from supported file patterns |
-| `shync up [file]` | Upload a file to remote storage |
-| `shync down [file]` | Download a file from remote storage |
+| `shync push [file]` | Upload a file to remote storage |
+| `shync pull [file]` | Download a file from remote storage |
 | `shync list` | List all tracked files with remote status |
 | `shync check` | Check sync status of all tracked files by comparing content |
 | `shync diff [file]` | Show side-by-side differences between local and remote versions |
 | `shync view [file]` | View a tracked file in read-only vim (local or remote) |
 | `shync remove` | Remove tracked files from config |
 | `shync backend` | Change the active storage backend |
+| `shync supported list` | List supported file patterns |
+| `shync supported add <pattern>` | Add a filename pattern (e.g. `.vimrc`, `config.toml`) |
+| `shync supported remove` | Remove a supported file pattern |
 | `shync config get\|set\|list\|remove` | View or modify configuration |
 | `shync clean` | Remove stale backups |
 | `shync update` | Self-update to the latest release |
@@ -136,7 +153,7 @@ shync list
 
 <table>
 <tr>
-<td align="center" width="50%">
+<td align="center" width="33%">
 
 ### ☁️ Google Drive
 
@@ -145,13 +162,22 @@ Files stored in a `shync` folder \
 Account picker on every auth
 
 </td>
-<td align="center" width="50%">
+<td align="center" width="33%">
 
 ### 🖥️ Synology NAS
 
 Username / password auth \
 2FA with OTP support \
 Files stored in user's Synology Drive
+
+</td>
+<td align="center" width="33%">
+
+### 🐙 GitHub Gist
+
+Personal Access Token auth \
+Files stored in a private gist \
+No extra setup — just a GitHub account
 
 </td>
 </tr>

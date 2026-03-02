@@ -13,19 +13,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var upCmd = &cobra.Command{
-	Use:   "up [file]",
+var pushCmd = &cobra.Command{
+	Use:   "push [file]",
 	Short: "Upload a file to remote storage",
 	Long:  "Upload a local file to remote storage and track it in the config.\nWith no arguments, pick from tracked files.\nShows a diff preview when the remote file already exists.",
 	Args:  cobra.MaximumNArgs(1),
-	RunE:  runUp,
+	RunE:  runPush,
 }
 
 func init() {
-	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(pushCmd)
 }
 
-func runUp(cmd *cobra.Command, args []string) error {
+func runPush(cmd *cobra.Command, args []string) error {
 	var localPath string
 	if len(args) == 1 {
 		localPath = fileutil.ExpandPath(args[0])
@@ -52,7 +52,23 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 	defer backend.Close()
 
-	filename := filepath.Base(absPath)
+	// Use existing remote name if already tracked, otherwise resolve conflicts.
+	displayPath := fileutil.ContractPath(absPath)
+	var filename string
+	if entry := cfg.FindFileByLocalPath(displayPath); entry != nil {
+		filename = entry.RemoteName
+	} else {
+		var renames []renameAction
+		filename, renames, err = resolveRemoteName(absPath, backend)
+		if err != nil {
+			return fmt.Errorf("resolving remote name: %w", err)
+		}
+		if len(renames) > 0 {
+			if err := applyRenames(backend, renames); err != nil {
+				return fmt.Errorf("renaming conflicting files: %w", err)
+			}
+		}
+	}
 	remotePath := cfg.RemoteDir + "/" + filename
 
 	// If remote file exists, show diff and ask for confirmation.
@@ -142,7 +158,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\u2713 Uploaded %s\n", filename)
 
 	// Track in config
-	displayPath := fileutil.ContractPath(absPath)
 	if cfg.AddFile(displayPath, filename) {
 		if err := cfg.Save(); err != nil {
 			return fmt.Errorf("saving config: %w", err)
@@ -155,7 +170,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 }
 
 // uploadFile handles the upload + spinner for a single file. Used by both
-// runUp and runAdd to share the same animation logic.
+// runPush and runAdd to share the same animation logic.
 func uploadFile(absPath string) error {
 	backend, err := newBackend()
 	if err != nil {

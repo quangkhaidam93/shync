@@ -28,7 +28,7 @@ type pickItem struct {
 // using arrow-key navigation. Includes an "Exit" option to abort.
 func pickTrackedFile(prompt string) (*config.FileEntry, error) {
 	if len(cfg.Files) == 0 {
-		return nil, fmt.Errorf("no tracked files — use 'shync up <file>' to start tracking")
+		return nil, fmt.Errorf("no tracked files — use 'shync push <file>' to start tracking")
 	}
 
 	items := make([]pickItem, len(cfg.Files)+1)

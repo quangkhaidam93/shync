@@ -6,6 +6,7 @@ import (
 
 	"github.com/quangkhaidam93/shync/internal/config"
 	"github.com/quangkhaidam93/shync/internal/storage"
+	"github.com/quangkhaidam93/shync/internal/storage/gist"
 	"github.com/quangkhaidam93/shync/internal/storage/googledrive"
 	"github.com/quangkhaidam93/shync/internal/storage/synology"
 	"github.com/spf13/cobra"
@@ -59,6 +60,8 @@ func newBackendWith(c *config.Config) (storage.Backend, error) {
 		return googledrive.New(c)
 	case "synology":
 		return synology.New(c)
+	case "gist":
+		return gist.New(c)
 	default:
 		return nil, fmt.Errorf("unknown backend: %s", c.ActiveBackend)
 	}

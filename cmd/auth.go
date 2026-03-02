@@ -27,6 +27,8 @@ func runAuth(cmd *cobra.Command, args []string) error {
 		return reauthGoogleDrive()
 	case "synology":
 		return reauthSynology()
+	case "gist":
+		return reauthGist()
 	default:
 		return fmt.Errorf("unknown backend: %s", cfg.ActiveBackend)
 	}
@@ -84,6 +86,33 @@ func reauthSynology() error {
 	}
 
 	fmt.Println("Re-authenticating with Synology NAS...")
+	if _, err := newBackend(); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	fmt.Println("Authentication successful.")
+	return nil
+}
+
+func reauthGist() error {
+	fmt.Print("New GitHub PAT (input hidden): ")
+	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("reading token: %w", err)
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+
+	cfg.Gist.Token = token
+	cfg.Gist.GistID = ""
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+
+	fmt.Println("Re-authenticating with GitHub Gist...")
 	if _, err := newBackend(); err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}

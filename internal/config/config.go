@@ -34,6 +34,11 @@ type SynologyConfig struct {
 	DeviceID  string `toml:"device_id"`
 }
 
+type GistConfig struct {
+	Token  string `toml:"token"`
+	GistID string `toml:"gist_id"`
+}
+
 type Config struct {
 	ActiveBackend  string            `toml:"active_backend"`
 	RemoteDir      string            `toml:"remote_dir"`
@@ -42,6 +47,7 @@ type Config struct {
 	Files          []FileEntry       `toml:"files"`
 	GoogleDrive    GoogleDriveConfig `toml:"google_drive"`
 	Synology       SynologyConfig    `toml:"synology"`
+	Gist           GistConfig        `toml:"gist"`
 
 	path string `toml:"-"`
 }
@@ -179,6 +185,16 @@ func (c *Config) AddFile(localPath, remoteName string) bool {
 	return true
 }
 
+// FindFileByLocalPath returns the file entry with the given local path.
+func (c *Config) FindFileByLocalPath(localPath string) *FileEntry {
+	for i := range c.Files {
+		if c.Files[i].LocalPath == localPath {
+			return &c.Files[i]
+		}
+	}
+	return nil
+}
+
 // FindFileByRemoteName returns the file entry with the given remote name.
 func (c *Config) FindFileByRemoteName(name string) *FileEntry {
 	for i := range c.Files {
@@ -276,7 +292,7 @@ func setField(v reflect.Value, t reflect.Type, parts []string, value string) err
 	// Handle files array
 	if parts[0] == "files" {
 		if len(parts) < 3 {
-			return fmt.Errorf("use 'shync up' to add files, or set files.<index>.<field>")
+			return fmt.Errorf("use 'shync push' to add files, or set files.<index>.<field>")
 		}
 		filesField := v.FieldByName("Files")
 		idx, err := strconv.Atoi(parts[1])

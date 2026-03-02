@@ -29,7 +29,7 @@ type fileStatus struct {
 
 func runList(cmd *cobra.Command, args []string) error {
 	if len(cfg.Files) == 0 {
-		fmt.Println("No tracked files. Use 'shync add' or 'shync up <file>' to start tracking.")
+		fmt.Println("No tracked files. Use 'shync add' or 'shync push <file>' to start tracking.")
 		return nil
 	}
 

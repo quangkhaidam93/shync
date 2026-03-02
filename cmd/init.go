@@ -67,6 +67,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err := setupSynology(reader, cfg); err != nil {
 			return err
 		}
+	case "gist":
+		if err := setupGist(reader, cfg); err != nil {
+			return err
+		}
 	default:
 		if err := setupGoogleDrive(reader, cfg); err != nil {
 			return err
@@ -105,7 +109,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("Authentication successful.")
 
-	fmt.Println("Run 'shync up <file>' to start syncing files.")
+	fmt.Println("Run 'shync push <file>' to start syncing files.")
 	return nil
 }
 
@@ -164,6 +168,38 @@ Note: When authorizing, you may see "Google hasn't verified this app".
 	tok = strings.TrimSpace(tok)
 	if tok != "" {
 		cfg.GoogleDrive.TokenFile = tok
+	}
+
+	return nil
+}
+
+func setupGist(reader *bufio.Reader, cfg *config.Config) error {
+	fmt.Print(`
+To use GitHub Gist, you need a Personal Access Token (PAT) with the "gist" scope.
+
+  1. Go to https://github.com/settings/tokens/new
+  2. Give it a name (e.g. "shync")
+  3. Check the "gist" scope
+  4. Click "Generate token" and copy it
+
+`)
+	fmt.Print("GitHub PAT (input hidden): ")
+	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return fmt.Errorf("reading token: %w", err)
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+	cfg.Gist.Token = token
+
+	fmt.Print("Existing Gist ID (leave empty to create new): ")
+	gistID, _ := reader.ReadString('\n')
+	gistID = strings.TrimSpace(gistID)
+	if gistID != "" {
+		cfg.Gist.GistID = gistID
 	}
 
 	return nil
