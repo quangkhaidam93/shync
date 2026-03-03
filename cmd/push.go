@@ -57,6 +57,43 @@ func runPush(cmd *cobra.Command, args []string) error {
 	var filename string
 	if entry := cfg.FindFileByLocalPath(displayPath); entry != nil {
 		filename = entry.RemoteName
+
+		// Case 2: if other machines have added *-baseName variants on remote,
+		// offer to rename this file for clarity.
+		baseName := filepath.Base(absPath)
+		if filename == baseName {
+			parentPrefix := filepath.Base(filepath.Dir(absPath)) + "-" + baseName
+			variants, listErr := findRemoteVariants(context.Background(), backend, baseName)
+			if listErr == nil && len(variants) > 1 {
+				prefixTaken := false
+				for _, v := range variants {
+					if v == parentPrefix {
+						prefixTaken = true
+						break
+					}
+				}
+				if !prefixTaken {
+					fmt.Printf("\n  Other machines have added their own %q variants on remote.\n", baseName)
+					renameSel := promptui.Select{
+						Label: "Would you like to rename yours for clarity?",
+						Items: []string{
+							fmt.Sprintf("Rename remote %s → %s", baseName, parentPrefix),
+							fmt.Sprintf("Keep as %s", baseName),
+						},
+					}
+					renameIdx, _, renameErr := renameSel.Run()
+					if renameErr == nil && renameIdx == 0 {
+						if applyErr := applyRenames(backend, []renameAction{{
+							oldRemote: baseName,
+							newRemote: parentPrefix,
+							entry:     entry,
+						}}); applyErr == nil {
+							filename = entry.RemoteName
+						}
+					}
+				}
+			}
+		}
 	} else {
 		var renames []renameAction
 		filename, renames, err = resolveRemoteName(absPath, backend)

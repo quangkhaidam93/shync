@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/manifoldco/promptui"
 	"github.com/quangkhaidam93/shync/internal/config"
@@ -17,10 +18,88 @@ type renameAction struct {
 	entry     *config.FileEntry
 }
 
+// findRemoteVariants returns all remote file names equal to baseName or ending
+// with "-baseName" (parent-prefixed variants created by conflict resolution).
+func findRemoteVariants(ctx context.Context, backend storage.Backend, baseName string) ([]string, error) {
+	files, err := backend.List(ctx, cfg.RemoteDir)
+	if err != nil {
+		return nil, err
+	}
+	suffix := "-" + baseName
+	var variants []string
+	for _, f := range files {
+		if f.Name == baseName || strings.HasSuffix(f.Name, suffix) {
+			variants = append(variants, f.Name)
+		}
+	}
+	return variants, nil
+}
+
+// askSameFile downloads a remote variant, shows a diff against the local file,
+// and asks whether the local file is the same config file as the remote variant.
+// noLabel is the text shown for the "no" choice.
+// Returns the remote name to use if user says "yes", or "" if "no".
+func askSameFile(localPath, variantName, noLabel string, backend storage.Backend, ctx context.Context) (string, error) {
+	var tmpPath string
+	err := spin(fmt.Sprintf("Fetching %s for comparison...", variantName), func() error {
+		tmpFile, innerErr := os.CreateTemp("", "shync-cmp-*")
+		if innerErr != nil {
+			return fmt.Errorf("creating temp file: %w", innerErr)
+		}
+		tmpPath = tmpFile.Name()
+		remotePath := cfg.RemoteDir + "/" + variantName
+		if dlErr := backend.Download(ctx, remotePath, tmpFile); dlErr != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			tmpPath = ""
+			return fmt.Errorf("downloading remote %s: %w", variantName, dlErr)
+		}
+		tmpFile.Close()
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpPath)
+
+	localLines, err := readLines(localPath)
+	if err != nil {
+		return "", fmt.Errorf("reading local file: %w", err)
+	}
+	remoteLines, err := readLines(tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("reading remote file: %w", err)
+	}
+
+	diffs := computeDiff(localLines, remoteLines)
+	if isIdentical(diffs) {
+		fmt.Printf("\n  Local file is identical to remote %s\n", variantName)
+	} else {
+		renderDiffHunks(diffs, variantName)
+	}
+
+	sel := promptui.Select{
+		Label: fmt.Sprintf("Is your local file the same config as remote %q?", variantName),
+		Items: []string{
+			fmt.Sprintf("Yes, same file as remote %s", variantName),
+			noLabel,
+		},
+	}
+	idx, _, selErr := sel.Run()
+	if selErr != nil {
+		return "", fmt.Errorf("prompt cancelled: %w", selErr)
+	}
+	if idx == 0 {
+		return variantName, nil
+	}
+	return "", nil
+}
+
 // resolveRemoteName determines the remote name for a file being added/uploaded.
-// If the plain basename conflicts with an existing tracked file or remote file,
-// it prefixes with the parent directory name. If the existing tracked file uses
-// the plain basename, a rename action is returned so it can be updated too.
+// When the plain basename has remote variants (from other machines), it shows
+// diffs and asks the user if their file is the same as each variant. If yes,
+// that remote name is reused. If no to all, the parent-prefixed name is assigned.
+// For local conflicts (same machine, different tracked path), it auto-renames.
 func resolveRemoteName(absPath string, backend storage.Backend) (string, []renameAction, error) {
 	baseName := filepath.Base(absPath)
 	parentPrefix := filepath.Base(filepath.Dir(absPath)) + "-" + baseName
@@ -31,34 +110,68 @@ func resolveRemoteName(absPath string, backend storage.Backend) (string, []renam
 	localConflict := cfg.FindFileByRemoteName(baseName)
 	// Ignore if the conflict is the same file being re-added.
 	if localConflict != nil {
-		localConflictAbs, _ := filepath.Abs(localConflict.LocalPath)
-		// LocalPath may use ~ so expand it first.
 		expanded := expandIfNeeded(localConflict.LocalPath)
-		localConflictAbs, _ = filepath.Abs(expanded)
+		localConflictAbs, _ := filepath.Abs(expanded)
 		if localConflictAbs == absPath {
 			localConflict = nil
 		}
 	}
 
-	// Check if baseName exists on remote (from another device or previous upload).
-	remoteConflict := false
+	// No local conflict — look for remote variants and ask the user.
 	if localConflict == nil {
-		exists, err := backend.Exists(ctx, cfg.RemoteDir+"/"+baseName)
-		if err == nil && exists {
-			// Only a conflict if this file isn't already tracked with this remote name.
-			remoteConflict = true
+		variants, err := findRemoteVariants(ctx, backend, baseName)
+		if err != nil {
+			return "", nil, fmt.Errorf("listing remote files: %w", err)
 		}
+		if len(variants) == 0 {
+			return baseName, nil, nil
+		}
+
+		// Check whether parentPrefix is already among the remote variants.
+		parentPrefixTaken := false
+		for _, v := range variants {
+			if v == parentPrefix {
+				parentPrefixTaken = true
+				break
+			}
+		}
+
+		for i, variant := range variants {
+			isLast := i == len(variants)-1
+			var noLabel string
+			switch {
+			case isLast && !parentPrefixTaken:
+				noLabel = fmt.Sprintf("No, create %s on remote", parentPrefix)
+			case isLast && parentPrefixTaken:
+				noLabel = "No, none of these are the same file"
+			default:
+				noLabel = "No, check next"
+			}
+
+			chosen, askErr := askSameFile(absPath, variant, noLabel, backend, ctx)
+			if askErr != nil {
+				return "", nil, askErr
+			}
+			if chosen != "" {
+				return chosen, nil, nil
+			}
+		}
+
+		// User said "no" to every variant.
+		if parentPrefixTaken {
+			// parentPrefix is also taken — prompt for a custom name.
+			name, err := promptCustomName(baseName)
+			if err != nil {
+				return "", nil, err
+			}
+			return name, nil, nil
+		}
+		return parentPrefix, nil, nil
 	}
 
-	// No conflict — use plain basename.
-	if localConflict == nil && !remoteConflict {
-		return baseName, nil, nil
-	}
-
-	// Conflict detected — try parentPrefix.
+	// Local conflict detected — try parentPrefix.
 	// Check parentPrefix against local tracked files.
 	if existing := cfg.FindFileByRemoteName(parentPrefix); existing != nil {
-		// parentPrefix also conflicts with a tracked file — prompt user.
 		name, err := promptCustomName(baseName)
 		if err != nil {
 			return "", nil, err
@@ -67,9 +180,7 @@ func resolveRemoteName(absPath string, backend storage.Backend) (string, []renam
 	}
 	// Check parentPrefix against remote.
 	if exists, err := backend.Exists(ctx, cfg.RemoteDir+"/"+parentPrefix); err == nil && exists {
-		// Check if the remote file is tracked locally (could be from init on another device).
 		if cfg.FindFileByRemoteName(parentPrefix) == nil {
-			// parentPrefix exists on remote but not tracked locally — prompt user.
 			name, err := promptCustomName(baseName)
 			if err != nil {
 				return "", nil, err
@@ -78,19 +189,14 @@ func resolveRemoteName(absPath string, backend storage.Backend) (string, []renam
 		}
 	}
 
-	// parentPrefix is available.
-	var renames []renameAction
-
-	// If an existing tracked file uses baseName, it needs to be renamed.
-	if localConflict != nil {
-		existingAbs, _ := filepath.Abs(expandIfNeeded(localConflict.LocalPath))
-		existingParentPrefix := filepath.Base(filepath.Dir(existingAbs)) + "-" + baseName
-		renames = append(renames, renameAction{
-			oldRemote: baseName,
-			newRemote: existingParentPrefix,
-			entry:     localConflict,
-		})
-	}
+	// parentPrefix is available — rename the conflicting local entry.
+	existingAbs, _ := filepath.Abs(expandIfNeeded(localConflict.LocalPath))
+	existingParentPrefix := filepath.Base(filepath.Dir(existingAbs)) + "-" + baseName
+	renames := []renameAction{{
+		oldRemote: baseName,
+		newRemote: existingParentPrefix,
+		entry:     localConflict,
+	}}
 
 	return parentPrefix, renames, nil
 }
