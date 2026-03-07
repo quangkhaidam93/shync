@@ -23,7 +23,7 @@ across every machine you work on — backed by storage you already own.
 
 <br />
 
-[Getting Started](#-getting-started) · [Features](#-features) · [Commands](#-commands) · [Backends](#-supported-backends) · [Docs](docs/)
+[Getting Started](#-getting-started) · [Features](#-features) · [Commands](#-commands) · [Snap](#-command-snippets) · [Backup](#-backup-backends) · [Backends](#-supported-backends) · [Docs](docs/)
 
 ---
 
@@ -37,6 +37,8 @@ across every machine you work on — backed by storage you already own.
 | 📊 | **Progress bar** | Real-time upload progress with speed and ETA |
 | 🔐 | **Secure auth** | OAuth 2.0 + PKCE for Google Drive, 2FA for Synology, PAT for GitHub Gist |
 | 🏠 | **Your storage** | Files live on your Google Drive, Synology NAS, or GitHub Gist — not a third-party server |
+| 📌 | **Command snippets** | Save frequently used shell commands and recall them instantly with regex search |
+| 🔁 | **Backup backends** | Mirror all your remote files to multiple backends for redundancy |
 | ⚡ | **Self-updating** | Built-in `shync update` pulls the latest release automatically |
 | 🛠️ | **Zero config** | Interactive `shync init` walks you through setup in seconds |
 
@@ -147,7 +149,70 @@ shync list
 | `shync uninstall` | Remove shync and all config data |
 | `shync version` | Print version, commit, and build info |
 
+### 📌 Snap commands
+
+| Command | Description |
+|---------|-------------|
+| `shync snap` | Open the snap picker (shortcut for `snap list`) |
+| `shync snap list` | List saved snaps with live regex search; paste selected command to shell prompt |
+| `shync snap add` | Save a new snippet — optionally pick from 10 recent shell history entries |
+| `shync snap remove` | Multi-select snaps to delete |
+| `shync snap sync` | Merge local snaps with the remote backup (union, local wins on conflicts) |
+
+### 🔁 Backup commands
+
+| Command | Description |
+|---------|-------------|
+| `shync backup list` | Show configured backup backends and their credential status |
+| `shync backup add` | Add a backend as a backup destination (reuse or reconfigure credentials) |
+| `shync backup remove` | Remove a backup backend |
+| `shync backup sync` | Copy all remote files from the active backend to every backup backend |
+
 > **Flag:** `--config <path>` overrides the default config location (`~/.config/shync/config.toml`)
+
+## 📌 Command Snippets
+
+Save frequently used shell commands as named snippets, synced across all your devices.
+
+Snaps are stored locally at `~/.config/shync/snaps.jsonl` (fast, no network for reads) and backed up to your active remote backend automatically on every change.
+
+```sh
+# Open the interactive picker — type to filter by regex, enter to paste to shell prompt
+shync snap
+
+# Save a new snippet (optionally pick from your last 10 shell history entries)
+shync snap add
+
+# Remove one or more snippets
+shync snap remove
+
+# Pull the latest backup from remote and merge with local
+shync snap sync
+```
+
+The picker starts in search mode — type any regex pattern to filter by name or command, then press **Enter** to paste the selected command directly onto your shell prompt (ready to run or edit).
+
+## 🔁 Backup Backends
+
+Mirror all your remote files to one or more additional backends for redundancy. Rules:
+- At most **one instance of each backend type** (one Google Drive, one Synology, one Gist)
+- The **active backend** cannot also be a backup backend
+
+```sh
+# Add a backend as a backup destination
+shync backup add
+
+# See configured backup backends
+shync backup list
+
+# Copy all files from active backend → every backup backend
+shync backup sync
+
+# Remove a backup backend
+shync backup remove
+```
+
+`backup add` walks you through credential setup for the chosen backend (or offers to reuse existing credentials if already configured). `backup sync` shows per-file progress and reports any errors.
 
 ## 🗄️ Supported Backends
 

@@ -86,10 +86,22 @@ func (g *Gist) Upload(ctx context.Context, remotePath string, src io.Reader, fil
 	}
 
 	key := fileKey(remotePath)
-	files := map[string]any{
-		key: map[string]string{"content": string(data)},
+
+	// If a file with this name already exists in the gist, remove it first so
+	// the upload creates a clean new entry rather than editing the old one.
+	existing, err := g.fetchGist(ctx)
+	if err != nil {
+		return err
 	}
-	return g.patchGist(ctx, files)
+	if _, ok := existing.Files[key]; ok {
+		if err := g.patchGist(ctx, map[string]any{key: nil}); err != nil {
+			return fmt.Errorf("removing old gist entry %q: %w", key, err)
+		}
+	}
+
+	return g.patchGist(ctx, map[string]any{
+		key: map[string]string{"content": string(data)},
+	})
 }
 
 func (g *Gist) Download(ctx context.Context, remotePath string, dst io.Writer) error {

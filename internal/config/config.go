@@ -44,6 +44,7 @@ type Config struct {
 	RemoteDir      string            `toml:"remote_dir"`
 	BackupExpiry   string            `toml:"backup_expiry"`
 	SupportedFiles []string          `toml:"supported_files"`
+	BackupBackends []string          `toml:"backup_backends"`
 	Files          []FileEntry       `toml:"files"`
 	GoogleDrive    GoogleDriveConfig `toml:"google_drive"`
 	Synology       SynologyConfig    `toml:"synology"`
@@ -90,6 +91,14 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.path = path
 	return &cfg, nil
+}
+
+// Dir returns the directory containing the config file.
+func (c *Config) Dir() string {
+	if c.path != "" {
+		return filepath.Dir(c.path)
+	}
+	return filepath.Dir(DefaultPath())
 }
 
 func (c *Config) Save() error {
@@ -488,4 +497,46 @@ func ParseExpiry(s string) (time.Duration, error) {
 	default:
 		return 0, fmt.Errorf("unknown expiry unit %q (use h, d, w, mo, or y)", unit)
 	}
+}
+
+// HasBackupBackend reports whether name is already in the backup list.
+func (c *Config) HasBackupBackend(name string) bool {
+	for _, b := range c.BackupBackends {
+		if b == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AddBackupBackend appends name to the backup list if not already present.
+func (c *Config) AddBackupBackend(name string) {
+	if !c.HasBackupBackend(name) {
+		c.BackupBackends = append(c.BackupBackends, name)
+	}
+}
+
+// RemoveBackupBackend removes name from the backup list.
+func (c *Config) RemoveBackupBackend(name string) {
+	out := c.BackupBackends[:0]
+	for _, b := range c.BackupBackends {
+		if b != name {
+			out = append(out, b)
+		}
+	}
+	c.BackupBackends = out
+}
+
+// IsBackendConfigured reports whether the minimum credentials for name exist in the config.
+func (c *Config) IsBackendConfigured(name string) bool {
+	switch name {
+	case "google_drive":
+		_, err := os.Stat(c.GoogleDrive.CredentialsFile)
+		return c.GoogleDrive.CredentialsFile != "" && err == nil
+	case "synology":
+		return c.Synology.Host != ""
+	case "gist":
+		return c.Gist.Token != ""
+	}
+	return false
 }

@@ -50,6 +50,12 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default ~/.config/shync/config.toml)")
 }
 
+func newBackendByName(name string) (storage.Backend, error) {
+	tmp := *cfg
+	tmp.ActiveBackend = name
+	return newBackendWith(&tmp)
+}
+
 func newBackend() (storage.Backend, error) {
 	return newBackendWith(cfg)
 }
