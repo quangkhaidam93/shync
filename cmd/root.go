@@ -53,7 +53,19 @@ func init() {
 func newBackendByName(name string) (storage.Backend, error) {
 	tmp := *cfg
 	tmp.ActiveBackend = name
-	return newBackendWith(&tmp)
+	b, err := newBackendWith(&tmp)
+	if err != nil {
+		return nil, err
+	}
+	// Sync back any IDs that were auto-generated during backend init
+	// (e.g. Google Drive folder ID, Gist ID) without touching ActiveBackend.
+	if tmp.GoogleDrive.FolderID != cfg.GoogleDrive.FolderID {
+		cfg.GoogleDrive.FolderID = tmp.GoogleDrive.FolderID
+	}
+	if tmp.Gist.GistID != cfg.Gist.GistID {
+		cfg.Gist.GistID = tmp.Gist.GistID
+	}
+	return b, nil
 }
 
 func newBackend() (storage.Backend, error) {

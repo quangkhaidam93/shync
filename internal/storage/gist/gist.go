@@ -62,9 +62,6 @@ func New(cfg *config.Config) (*Gist, error) {
 		}
 		g.gistID = id
 		cfg.Gist.GistID = id
-		if err := cfg.Save(); err != nil {
-			return nil, fmt.Errorf("saving gist id: %w", err)
-		}
 	} else {
 		// Validate connectivity by fetching the gist.
 		if _, err := g.fetchGist(ctx); err != nil {

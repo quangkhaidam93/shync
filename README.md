@@ -23,7 +23,7 @@ across every machine you work on — backed by storage you already own.
 
 <br />
 
-[Getting Started](#-getting-started) · [Features](#-features) · [Commands](#-commands) · [Snap](#-command-snippets) · [Backup](#-backup-backends) · [Backends](#-supported-backends) · [Docs](docs/)
+[Getting Started](#-getting-started) · [Features](#-features) · [Commands](#-commands) · [Snap](#-command-snippets) · [Backup](#-backup-backends) · [Backend Switch](#switching-active-backend) · [Backends](#-supported-backends) · [Docs](docs/)
 
 ---
 
@@ -139,7 +139,9 @@ shync list
 | `shync diff [file]` | Show side-by-side differences between local and remote versions |
 | `shync view [file]` | View a tracked file in read-only vim (local or remote) |
 | `shync remove` | Remove tracked files from config |
-| `shync backend` | Change the active storage backend |
+| `shync backend` | Change the active storage backend (setup wizard) |
+| `shync backend list` | List all backends — active and backup — with credential status |
+| `shync backend switch` | Promote a configured backend to active; demote old active to backup |
 | `shync supported list` | List supported file patterns |
 | `shync supported add <pattern>` | Add a filename pattern (e.g. `.vimrc`, `config.toml`) |
 | `shync supported remove` | Remove a supported file pattern |
@@ -167,6 +169,13 @@ shync list
 | `shync backup add` | Add a backend as a backup destination (reuse or reconfigure credentials) |
 | `shync backup remove` | Remove a backup backend |
 | `shync backup sync` | Copy all remote files from the active backend to every backup backend |
+
+### 🖥️ Backend commands
+
+| Command | Description |
+|---------|-------------|
+| `shync backend list` | Show all backends (active ● and backup ○) with credential status |
+| `shync backend switch` | Interactively switch active backend; old active is automatically added to backups |
 
 > **Flag:** `--config <path>` overrides the default config location (`~/.config/shync/config.toml`)
 
@@ -213,6 +222,18 @@ shync backup remove
 ```
 
 `backup add` walks you through credential setup for the chosen backend (or offers to reuse existing credentials if already configured). `backup sync` shows per-file progress and reports any errors.
+
+### Switching active backend
+
+Use `shync backend switch` to promote any configured backend to the active (primary) role. The old active backend is automatically added to the backup list so nothing is lost:
+
+```sh
+# See all backends and their roles
+shync backend list
+
+# Interactively switch — old active becomes a backup automatically
+shync backend switch
+```
 
 ## 🗄️ Supported Backends
 

@@ -50,7 +50,6 @@ func New(cfg *config.Config) (*Drive, error) {
 		}
 		d.folderID = folderID
 		cfg.GoogleDrive.FolderID = folderID
-		cfg.Save()
 	}
 
 	return d, nil

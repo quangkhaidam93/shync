@@ -11,8 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var allBackends = []string{"google_drive", "synology", "gist"}
-
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Manage backup storage backends",
@@ -76,7 +74,7 @@ func runBackupList(_ *cobra.Command, _ []string) error {
 func runBackupAdd(_ *cobra.Command, _ []string) error {
 	// Build list of backends that can still be added.
 	var available []string
-	for _, b := range allBackends {
+	for _, b := range backends {
 		if b == cfg.ActiveBackend {
 			continue
 		}
