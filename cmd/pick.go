@@ -75,6 +75,78 @@ func pickTrackedFile(prompt string) (*config.FileEntry, error) {
 	return &cfg.Files[idx], nil
 }
 
+// pickTrackedFileMulti lets the user select multiple tracked files.
+// Returns a slice of selected FileEntry pointers.
+func pickTrackedFileMulti(prompt string) ([]*config.FileEntry, error) {
+	if len(cfg.Files) == 0 {
+		return nil, fmt.Errorf("no tracked files — use 'shync push <file>' to start tracking")
+	}
+
+	items := make([]pickItem, len(cfg.Files)+1)
+	for i, f := range cfg.Files {
+		items[i] = pickItem{RemoteName: f.RemoteName, LocalPath: f.LocalPath}
+	}
+	items[len(items)-1] = pickItem{RemoteName: "Exit", IsExit: true}
+
+	templates := &promptui.SelectTemplates{
+		Label: "{{ . }}",
+		Active: `{{ if .IsExit }}` +
+			"\U0000276F {{ .RemoteName | red }}" +
+			`{{ else }}` +
+			"\U0000276F ☐ {{ .RemoteName | cyan }} ({{ .LocalPath }})" +
+			`{{ end }}`,
+		Inactive: `{{ if .IsExit }}` +
+			"  {{ .RemoteName }}" +
+			`{{ else }}` +
+			"  ☐ {{ .RemoteName }} ({{ .LocalPath }})" +
+			`{{ end }}`,
+		Selected: `{{ if .IsExit }}` +
+			"Done." +
+			`{{ else }}` +
+			"\U00002713 ☐ {{ .RemoteName | cyan }}" +
+			`{{ end }}`,
+	}
+
+	sel := promptui.Select{
+		Label:     prompt,
+		Items:     items,
+		Templates: templates,
+		Size:      10,
+	}
+
+	var selected []*config.FileEntry
+	for {
+		idx, _, err := sel.Run()
+		if err != nil {
+			if len(selected) == 0 {
+				return nil, errAborted
+			}
+			return selected, nil
+		}
+
+		if items[idx].IsExit {
+			if len(selected) == 0 {
+				return nil, errAborted
+			}
+			return selected, nil
+		}
+
+		// Toggle selection
+		entry := &cfg.Files[idx]
+		found := false
+		for i, s := range selected {
+			if s == entry {
+				selected = append(selected[:i], selected[i+1:]...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			selected = append(selected, entry)
+		}
+	}
+}
+
 type remotePickItem struct {
 	Name   string
 	Size   string
@@ -169,6 +241,112 @@ func showRemotePicker(prompt string, files []storage.FileMetadata) (string, erro
 	}
 
 	return files[idx].Name, nil
+}
+
+// pickRemoteFileMulti lets the user select multiple remote files.
+func pickRemoteFileMulti(prompt string, fetchFn func() ([]storage.FileMetadata, error)) ([]string, error) {
+	type listResult struct {
+		files []storage.FileMetadata
+		err   error
+	}
+	ch := make(chan listResult, 1)
+	go func() {
+		f, e := fetchFn()
+		ch <- listResult{f, e}
+	}()
+
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	start := time.Now()
+	minDisplay := 500 * time.Millisecond
+	i := 0
+	var res listResult
+
+	// Spin until fetch completes AND minimum display time has passed
+	for {
+		select {
+		case res = <-ch:
+			ch = nil // stop reading, keep spinning until minDisplay
+		default:
+		}
+		if ch == nil && time.Since(start) >= minDisplay {
+			break
+		}
+		fmt.Printf("\r%s Fetching remote files...", frames[i%len(frames)])
+		i++
+		time.Sleep(80 * time.Millisecond)
+	}
+	fmt.Printf("\r\033[K")
+
+	if res.err != nil {
+		return nil, fmt.Errorf("listing remote files: %w", res.err)
+	}
+	if len(res.files) == 0 {
+		return nil, fmt.Errorf("no files found in remote directory %s", cfg.RemoteDir)
+	}
+	return showRemotePickerMulti(prompt, res.files)
+}
+
+// showRemotePickerMulti allows selecting multiple remote files.
+func showRemotePickerMulti(prompt string, files []storage.FileMetadata) ([]string, error) {
+	items := make([]remotePickItem, len(files)+1)
+	for i, f := range files {
+		items[i] = remotePickItem{Name: f.Name, Size: formatSize(f.Size)}
+	}
+	items[len(items)-1] = remotePickItem{Name: "Exit", IsExit: true}
+
+	templates := &promptui.SelectTemplates{
+		Label: "{{ . }}",
+		Active: `{{ if .IsExit }}` +
+			"\U0000276F {{ .Name | red }}" +
+			`{{ else }}` +
+			"\U0000276F ☐ {{ .Name | cyan }} ({{ .Size }})" +
+			`{{ end }}`,
+		Inactive: `{{ if .IsExit }}` +
+			"  {{ .Name }}" +
+			`{{ else }}` +
+			"  ☐ {{ .Name }} ({{ .Size }})" +
+			`{{ end }}`,
+		Selected: `{{ if .IsExit }}` +
+			"Done." +
+			`{{ else }}` +
+			"\U00002713 ☐ {{ .Name | cyan }}" +
+			`{{ end }}`,
+	}
+
+	sel := promptui.Select{
+		Label:     prompt,
+		Items:     items,
+		Templates: templates,
+		Size:      10,
+	}
+
+	selected := make(map[string]bool)
+	for {
+		idx, _, err := sel.Run()
+		if err != nil {
+			if len(selected) == 0 {
+				return nil, errAborted
+			}
+			break
+		}
+
+		if items[idx].IsExit {
+			if len(selected) == 0 {
+				return nil, errAborted
+			}
+			break
+		}
+
+		// Toggle selection
+		name := files[idx].Name
+		selected[name] = !selected[name]
+	}
+
+	var result []string
+	for name := range selected {
+		result = append(result, name)
+	}
+	return result, nil
 }
 
 // finderItem represents an entry in the file finder.

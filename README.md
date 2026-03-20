@@ -132,8 +132,8 @@ shync list
 | `shync init` | Interactive setup — pick a backend, configure credentials, and authenticate |
 | `shync auth` | Re-authenticate or switch accounts |
 | `shync add` | Pick files to track from supported file patterns |
-| `shync push [file]` | Upload a file to remote storage |
-| `shync pull [file]` | Download a file from remote storage |
+| `shync push [file]...` | Upload one or more files to remote storage (interactive multi-select if no args) |
+| `shync pull [file]...` | Download one or more files from remote storage (interactive multi-select if no args) |
 | `shync list` | List all tracked files with remote status |
 | `shync check` | Check sync status of all tracked files by comparing content |
 | `shync diff [file]` | Show side-by-side differences between local and remote versions |
@@ -178,6 +178,29 @@ shync list
 | `shync backend switch` | Interactively switch active backend; old active is automatically added to backups |
 
 > **Flag:** `--config <path>` overrides the default config location (`~/.config/shync/config.toml`)
+
+## 📁 Batch Operations
+
+Both `push` and `pull` support **interactive multi-select** when no files are specified:
+
+```sh
+# Interactive push — space to select, enter to confirm
+shync push
+
+# Interactive pull — space to select, enter to confirm
+shync pull
+
+# Command-line batch operations
+shync push ~/.zshrc ~/.gitconfig
+shync pull config.toml snaps.jsonl
+```
+
+When no arguments are provided, you'll enter an interactive picker where you can use:
+- **Space** to toggle selection on individual files
+- **Enter** to confirm and proceed with the selected files
+- **Esc** / **Ctrl-C** to cancel
+
+For batch operations via command-line, diff previews and confirmations are skipped for efficiency.
 
 ## 📌 Command Snippets
 

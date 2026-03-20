@@ -16,10 +16,10 @@ import (
 )
 
 var pullCmd = &cobra.Command{
-	Use:   "pull [file]",
-	Short: "Download a file from remote storage",
-	Long:  "Download a tracked file from remote storage. Shows a side-by-side diff preview and creates a backup of the existing local file first.\nWith no arguments, pick from tracked files.",
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "pull [file]...",
+	Short: "Download file(s) from remote storage",
+	Long:  "Download one or more tracked files from remote storage. Shows a side-by-side diff preview and creates backups of existing local files first.\nWith no arguments, select from remote files (space to multi-select, enter to submit).",
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runPull,
 }
 
@@ -28,11 +28,13 @@ func init() {
 }
 
 func runPull(cmd *cobra.Command, args []string) error {
-	var remoteName string
-	if len(args) == 1 {
-		remoteName = args[0]
+	var remoteNames []string
+
+	if len(args) > 0 {
+		remoteNames = args
 	} else {
-		picked, err := pickRemoteFile("Download which file?", func() ([]storage.FileMetadata, error) {
+		// Interactive: let user pick from remote files (multi-select)
+		picked, err := pickRemoteFileMulti("Select file(s) to download (space=select, enter=submit):", func() ([]storage.FileMetadata, error) {
 			b, err := newBackend()
 			if err != nil {
 				return nil, err
@@ -43,7 +45,12 @@ func runPull(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return nil
 		}
-		remoteName = picked
+		remoteNames = picked
+	}
+
+	if len(remoteNames) == 0 {
+		fmt.Println("No files selected.")
+		return nil
 	}
 
 	backend, err := newBackend()
@@ -52,81 +59,124 @@ func runPull(cmd *cobra.Command, args []string) error {
 	}
 	defer backend.Close()
 
-	entry := cfg.FindFileByRemoteName(remoteName)
-	if entry == nil {
-		return fmt.Errorf("file not tracked: %s\nRun 'shync list' to see tracked files", remoteName)
-	}
+	var downloadErrors []string
+	for _, remoteName := range remoteNames {
+		entry := cfg.FindFileByRemoteName(remoteName)
+		if entry == nil {
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: file not tracked", remoteName))
+			continue
+		}
 
-	localPath := fileutil.ExpandPath(entry.LocalPath)
-	remotePath := cfg.RemoteDir + "/" + remoteName
+		localPath := fileutil.ExpandPath(entry.LocalPath)
+		remotePath := cfg.RemoteDir + "/" + remoteName
 
-	exists, err := backend.Exists(context.Background(), remotePath)
-	if err != nil {
-		return fmt.Errorf("checking remote file: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("file not found on remote: %s", remoteName)
-	}
+		exists, err := backend.Exists(context.Background(), remotePath)
+		if err != nil {
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: checking remote file: %v", remoteName, err))
+			continue
+		}
+		if !exists {
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: file not found on remote", remoteName))
+			continue
+		}
 
-	// Download to temp file first
-	tmpFile, err := os.CreateTemp("", "shync-down-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+		// Download to temp file first
+		tmpFile, err := os.CreateTemp("", "shync-down-*")
+		if err != nil {
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: creating temp file: %v", remoteName, err))
+			continue
+		}
+		tmpPath := tmpFile.Name()
+		defer os.Remove(tmpPath)
 
-	fmt.Printf("Downloading %s from %s (%s)...\n", entry.RemoteName, remotePath, backend.Name())
-	if err := backend.Download(context.Background(), remotePath, tmpFile); err != nil {
+		if len(remoteNames) == 1 {
+			fmt.Printf("Downloading %s from %s (%s)...\n", entry.RemoteName, remotePath, backend.Name())
+		}
+		if err := backend.Download(context.Background(), remotePath, tmpFile); err != nil {
+			tmpFile.Close()
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: download failed: %v", remoteName, err))
+			continue
+		}
 		tmpFile.Close()
-		return fmt.Errorf("download failed: %w", err)
+
+		// If local file exists and only one file being pulled, show diff and ask for confirmation
+		if fileutil.FileExists(localPath) && len(remoteNames) == 1 {
+			localLines, err := readLines(localPath)
+			if err != nil {
+				downloadErrors = append(downloadErrors, fmt.Sprintf("%s: reading local file: %v", remoteName, err))
+				continue
+			}
+			remoteLines, err := readLines(tmpPath)
+			if err != nil {
+				downloadErrors = append(downloadErrors, fmt.Sprintf("%s: reading remote file: %v", remoteName, err))
+				continue
+			}
+
+			diffs := computeDiff(localLines, remoteLines)
+			if isIdentical(diffs) {
+				fmt.Println("Files are identical. Nothing to do.")
+				return nil
+			}
+
+			renderSideBySide(remoteName, "local", diffs)
+
+			sel := promptui.Select{
+				Label: "Apply changes?",
+				Items: []string{"Yes", "No"},
+			}
+			_, choice, err := sel.Run()
+			if err != nil || choice == "No" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+
+			// Backup existing file
+			backupPath, err := backup.Create(localPath)
+			if err != nil {
+				downloadErrors = append(downloadErrors, fmt.Sprintf("%s: creating backup: %v", remoteName, err))
+				continue
+			}
+			if backupPath != "" {
+				fmt.Printf("Backed up %s -> %s\n", localPath, backupPath)
+			}
+		} else if fileutil.FileExists(localPath) && len(remoteNames) > 1 {
+			// For batch operations, just backup without showing diff
+			backupPath, err := backup.Create(localPath)
+			if err != nil {
+				downloadErrors = append(downloadErrors, fmt.Sprintf("%s: creating backup: %v", remoteName, err))
+				continue
+			}
+			if backupPath != "" && len(remoteNames) <= 3 {
+				fmt.Printf("Backed up %s\n", localPath)
+			}
+		}
+
+		if err := copyFile(tmpPath, localPath); err != nil {
+			downloadErrors = append(downloadErrors, fmt.Sprintf("%s: writing local file: %v", remoteName, err))
+			continue
+		}
+
+		if len(remoteNames) > 1 && len(downloadErrors) < 10 {
+			fmt.Printf("✓ %s\n", remoteName)
+		}
 	}
-	tmpFile.Close()
 
-	// If local file exists, show diff and ask for confirmation
-	if fileutil.FileExists(localPath) {
-		localLines, err := readLines(localPath)
-		if err != nil {
-			return fmt.Errorf("reading local file: %w", err)
+	if len(downloadErrors) > 0 {
+		fmt.Println("\nErrors encountered:")
+		for _, errMsg := range downloadErrors {
+			fmt.Printf("  ✗ %s\n", errMsg)
 		}
-		remoteLines, err := readLines(tmpPath)
-		if err != nil {
-			return fmt.Errorf("reading remote file: %w", err)
+		if len(downloadErrors) < len(remoteNames) {
+			fmt.Println("Done (with errors).")
 		}
-
-		diffs := computeDiff(localLines, remoteLines)
-		if isIdentical(diffs) {
-			fmt.Println("Files are identical. Nothing to do.")
-			return nil
-		}
-
-		renderSideBySide(remoteName, "local", diffs)
-
-		sel := promptui.Select{
-			Label: "Apply changes?",
-			Items: []string{"Yes", "No"},
-		}
-		_, choice, err := sel.Run()
-		if err != nil || choice == "No" {
-			fmt.Println("Aborted.")
-			return nil
-		}
-
-		// Backup existing file
-		backupPath, err := backup.Create(localPath)
-		if err != nil {
-			return fmt.Errorf("creating backup: %w", err)
-		}
-		if backupPath != "" {
-			fmt.Printf("Backed up %s -> %s\n", localPath, backupPath)
-		}
+		return fmt.Errorf("%d file(s) failed to download", len(downloadErrors))
 	}
 
-	if err := copyFile(tmpPath, localPath); err != nil {
-		return fmt.Errorf("writing local file: %w", err)
+	if len(remoteNames) > 1 {
+		fmt.Printf("\n✓ All %d file(s) downloaded successfully.\n", len(remoteNames))
+	} else {
+		fmt.Println("Done.")
 	}
-
-	fmt.Println("Done.")
 	return nil
 }
 
