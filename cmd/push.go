@@ -32,7 +32,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		filesToPush = args
 	} else {
 		// Interactive: let user pick from tracked files (multi-select)
-		picked, err := pickTrackedFileMulti("Select file(s) to upload (space=select, enter=submit):")
+		picked, err := pickTrackedFileMulti("Select file(s) to upload")
 		if err != nil {
 			return nil
 		}

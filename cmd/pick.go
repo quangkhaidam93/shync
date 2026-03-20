@@ -75,6 +75,126 @@ func pickTrackedFile(prompt string) (*config.FileEntry, error) {
 	return &cfg.Files[idx], nil
 }
 
+func runMultiSelect(prompt string, items []string) ([]int, error) {
+	if len(items) == 0 {
+		return nil, errors.New("no items to select")
+	}
+
+	selected := make(map[int]bool)
+	cursor := 0
+	pageSize := 10
+
+	fd := int(os.Stdin.Fd())
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, fmt.Errorf("enabling raw mode: %w", err)
+	}
+	defer term.Restore(fd, oldState)
+
+	// Clear screen to start fresh
+	fmt.Print("\033[H\033[J")
+
+	buf := make([]byte, 3)
+
+	render := func() {
+		// Clear screen and move to top
+		fmt.Print("\033[H\033[J")
+
+		fmt.Printf("  %s  (space=toggle, enter=submit, esc=cancel)\r\n\r\n", prompt)
+
+		start := 0
+		end := len(items)
+		if len(items) > pageSize {
+			start = cursor - pageSize/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + pageSize
+			if end > len(items) {
+				end = len(items)
+				start = end - pageSize
+			}
+		}
+
+		for i := start; i < end; i++ {
+			prefix := "  "
+			if i == cursor {
+				prefix = "> "
+			}
+
+			check := "[ ]"
+			if selected[i] {
+				check = "[x]"
+			}
+
+			// Style: Cyan for items, Bold for cursor
+			style := "\033[36m"   // Cyan
+			if i == cursor {
+				style = "\033[1;36m" // Bold Cyan
+			}
+			reset := "\033[0m"
+
+			fmt.Printf("  %s%s%s %s%s\r\n", style, prefix, check, items[i], reset)
+		}
+
+		if len(items) > pageSize {
+			fmt.Printf("\r\n  \033[2m(%d/%d)\033[0m\r\n", cursor+1, len(items))
+		}
+	}
+
+	render()
+
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		switch {
+		// Esc or Ctrl-C
+		case n == 1 && (buf[0] == 0x1b || buf[0] == 0x03):
+			fmt.Print("\033[H\033[J")
+			return nil, errAborted
+
+		// Enter
+		case n == 1 && (buf[0] == '\r' || buf[0] == '\n'):
+			fmt.Print("\033[H\033[J")
+			var result []int
+			hasSelection := false
+			for i := 0; i < len(items); i++ {
+				if selected[i] {
+					result = append(result, i)
+					hasSelection = true
+				}
+			}
+			// If nothing selected, select the current cursor item
+			if !hasSelection {
+				result = append(result, cursor)
+			}
+			return result, nil
+
+		// Space
+		case n == 1 && buf[0] == ' ':
+			selected[cursor] = !selected[cursor]
+			render()
+
+		// Arrow Up
+		case n == 3 && buf[0] == 0x1b && buf[1] == '[' && buf[2] == 'A':
+			if cursor > 0 {
+				cursor--
+				render()
+			}
+
+		// Arrow Down
+		case n == 3 && buf[0] == 0x1b && buf[1] == '[' && buf[2] == 'B':
+			if cursor < len(items)-1 {
+				cursor++
+				render()
+			}
+		}
+	}
+}
+
 // pickTrackedFileMulti lets the user select multiple tracked files.
 // Returns a slice of selected FileEntry pointers.
 func pickTrackedFileMulti(prompt string) ([]*config.FileEntry, error) {
@@ -82,69 +202,21 @@ func pickTrackedFileMulti(prompt string) ([]*config.FileEntry, error) {
 		return nil, fmt.Errorf("no tracked files — use 'shync push <file>' to start tracking")
 	}
 
-	items := make([]pickItem, len(cfg.Files)+1)
-	for i, f := range cfg.Files {
-		items[i] = pickItem{RemoteName: f.RemoteName, LocalPath: f.LocalPath}
-	}
-	items[len(items)-1] = pickItem{RemoteName: "Exit", IsExit: true}
-
-	templates := &promptui.SelectTemplates{
-		Label: "{{ . }}",
-		Active: `{{ if .IsExit }}` +
-			"\U0000276F {{ .RemoteName | red }}" +
-			`{{ else }}` +
-			"\U0000276F ☐ {{ .RemoteName | cyan }} ({{ .LocalPath }})" +
-			`{{ end }}`,
-		Inactive: `{{ if .IsExit }}` +
-			"  {{ .RemoteName }}" +
-			`{{ else }}` +
-			"  ☐ {{ .RemoteName }} ({{ .LocalPath }})" +
-			`{{ end }}`,
-		Selected: `{{ if .IsExit }}` +
-			"Done." +
-			`{{ else }}` +
-			"\U00002713 ☐ {{ .RemoteName | cyan }}" +
-			`{{ end }}`,
+	var options []string
+	for _, f := range cfg.Files {
+		options = append(options, fmt.Sprintf("%s (%s)", f.RemoteName, f.LocalPath))
 	}
 
-	sel := promptui.Select{
-		Label:     prompt,
-		Items:     items,
-		Templates: templates,
-		Size:      10,
+	indices, err := runMultiSelect(prompt, options)
+	if err != nil {
+		return nil, err
 	}
 
-	var selected []*config.FileEntry
-	for {
-		idx, _, err := sel.Run()
-		if err != nil {
-			if len(selected) == 0 {
-				return nil, errAborted
-			}
-			return selected, nil
-		}
-
-		if items[idx].IsExit {
-			if len(selected) == 0 {
-				return nil, errAborted
-			}
-			return selected, nil
-		}
-
-		// Toggle selection
-		entry := &cfg.Files[idx]
-		found := false
-		for i, s := range selected {
-			if s == entry {
-				selected = append(selected[:i], selected[i+1:]...)
-				found = true
-				break
-			}
-		}
-		if !found {
-			selected = append(selected, entry)
-		}
+	var result []*config.FileEntry
+	for _, idx := range indices {
+		result = append(result, &cfg.Files[idx])
 	}
+	return result, nil
 }
 
 type remotePickItem struct {
@@ -288,63 +360,19 @@ func pickRemoteFileMulti(prompt string, fetchFn func() ([]storage.FileMetadata, 
 
 // showRemotePickerMulti allows selecting multiple remote files.
 func showRemotePickerMulti(prompt string, files []storage.FileMetadata) ([]string, error) {
-	items := make([]remotePickItem, len(files)+1)
-	for i, f := range files {
-		items[i] = remotePickItem{Name: f.Name, Size: formatSize(f.Size)}
-	}
-	items[len(items)-1] = remotePickItem{Name: "Exit", IsExit: true}
-
-	templates := &promptui.SelectTemplates{
-		Label: "{{ . }}",
-		Active: `{{ if .IsExit }}` +
-			"\U0000276F {{ .Name | red }}" +
-			`{{ else }}` +
-			"\U0000276F ☐ {{ .Name | cyan }} ({{ .Size }})" +
-			`{{ end }}`,
-		Inactive: `{{ if .IsExit }}` +
-			"  {{ .Name }}" +
-			`{{ else }}` +
-			"  ☐ {{ .Name }} ({{ .Size }})" +
-			`{{ end }}`,
-		Selected: `{{ if .IsExit }}` +
-			"Done." +
-			`{{ else }}` +
-			"\U00002713 ☐ {{ .Name | cyan }}" +
-			`{{ end }}`,
+	var options []string
+	for _, f := range files {
+		options = append(options, fmt.Sprintf("%s (%s)", f.Name, formatSize(f.Size)))
 	}
 
-	sel := promptui.Select{
-		Label:     prompt,
-		Items:     items,
-		Templates: templates,
-		Size:      10,
-	}
-
-	selected := make(map[string]bool)
-	for {
-		idx, _, err := sel.Run()
-		if err != nil {
-			if len(selected) == 0 {
-				return nil, errAborted
-			}
-			break
-		}
-
-		if items[idx].IsExit {
-			if len(selected) == 0 {
-				return nil, errAborted
-			}
-			break
-		}
-
-		// Toggle selection
-		name := files[idx].Name
-		selected[name] = !selected[name]
+	indices, err := runMultiSelect(prompt, options)
+	if err != nil {
+		return nil, err
 	}
 
 	var result []string
-	for name := range selected {
-		result = append(result, name)
+	for _, idx := range indices {
+		result = append(result, files[idx].Name)
 	}
 	return result, nil
 }

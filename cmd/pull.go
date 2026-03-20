@@ -34,7 +34,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 		remoteNames = args
 	} else {
 		// Interactive: let user pick from remote files (multi-select)
-		picked, err := pickRemoteFileMulti("Select file(s) to download (space=select, enter=submit):", func() ([]storage.FileMetadata, error) {
+		picked, err := pickRemoteFileMulti("Select file(s) to download", func() ([]storage.FileMetadata, error) {
 			b, err := newBackend()
 			if err != nil {
 				return nil, err
